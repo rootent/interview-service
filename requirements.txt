@@ -1,0 +1,9 @@
+google-generativeai
+langchain
+langchain-community
+chromadb
+sentence-transformers
+scikit-learn
+python-dotenv
+numpy
+psutil
