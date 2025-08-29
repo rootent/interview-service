@@ -1,6 +1,6 @@
 """
 RAG Model - Core functionality for document processing and embeddings
-OPTIMIZED FOR SPEED
+OPTIMIZED FOR SPEED & TECHNICAL DEPTH
 """
 
 import os
@@ -16,13 +16,14 @@ import pickle
 import hashlib
 from pathlib import Path
 import time
+import glob
 
 # Load environment variables
 load_dotenv('config.env')
 
 class RAGModel:
     def __init__(self):
-        """Initialize RAG model with configuration - OPTIMIZED FOR SPEED"""
+        """Initialize RAG model with configuration - OPTIMIZED FOR SPEED & TECHNICAL DEPTH"""
         self.api_key = os.getenv('GEMINI_API_KEY')
         self.jd_path = os.getenv('JD_PATH')
         self.vision_path = os.getenv('VISION_MISSION_PATH')
@@ -33,16 +34,19 @@ class RAGModel:
         self.resume_weight = float(os.getenv('RESUME_WEIGHT', 0.35))
         self.vision_weight = float(os.getenv('VISION_WEIGHT', 0.15))
         
-        # Model configuration - OPTIMIZED FOR SPEED
+        # Model configuration - OPTIMIZED FOR SPEED & QUALITY
         self.embedding_model = os.getenv('EMBEDDING_MODEL', 'sentence-transformers/paraphrase-MiniLM-L3-v2')
-        self.chunk_size = int(os.getenv('CHUNK_SIZE', 300))  # Much smaller for speed
+        self.chunk_size = int(os.getenv('CHUNK_SIZE', 300))  # Optimized for speed
         self.chunk_overlap = int(os.getenv('CHUNK_OVERLAP', 50))  # Minimal overlap
-        self.max_follow_ups = int(os.getenv('MAX_FOLLOW_UPS', 2))  # Reduced follow-ups
+        self.max_follow_ups = int(os.getenv('MAX_FOLLOW_UPS', 3))  # Increased for technical depth
         
         # Performance settings
         self.use_cache = os.getenv('USE_CACHE', 'true').lower() == 'true'
-        self.max_content_length = int(os.getenv('MAX_CONTENT_LENGTH', 1000))
         self.batch_size = int(os.getenv('BATCH_SIZE', 3))
+        
+        # Technical interview settings
+        self.technical_depth = os.getenv('TECHNICAL_DEPTH', 'high')
+        self.evaluation_parameters = os.getenv('EVALUATION_PARAMETERS', 'language,tech_skills,content_depth,problem_solving,communication').split(',')
         
         # Cache configuration
         self.cache_dir = Path("cache")
@@ -67,6 +71,31 @@ class RAGModel:
         stat = os.stat(file_path)
         return f"{file_path}_{stat.st_mtime}_{stat.st_size}"
     
+    def _get_folder_hash(self, folder_path):
+        """Get folder hash for caching - handles multiple PDFs"""
+        if not os.path.exists(folder_path):
+            return None
+        
+        if os.path.isfile(folder_path):
+            # If it's a file, use regular file hash
+            return self._get_file_hash(folder_path)
+        
+        # If it's a folder, hash all PDF files in it
+        pdf_files = glob.glob(os.path.join(folder_path, "*.pdf"))
+        if not pdf_files:
+            return None
+        
+        # Sort files for consistent hashing
+        pdf_files.sort()
+        folder_hash = f"folder_{folder_path}"
+        
+        for pdf_file in pdf_files:
+            file_hash = self._get_file_hash(pdf_file)
+            if file_hash:
+                folder_hash += f"_{file_hash}"
+        
+        return folder_hash
+    
     def _load_from_cache(self):
         """Load processed documents from cache if available"""
         if not self.use_cache:
@@ -83,7 +112,7 @@ class RAGModel:
             # Check if all files are still the same
             current_hashes = {
                 "jd": self._get_file_hash(self.jd_path),
-                "vision": self._get_file_hash(self.vision_path),
+                "vision": self._get_folder_hash(self.vision_path),
                 "resume": self._get_file_hash(self.resume_path)
             }
             
@@ -113,7 +142,7 @@ class RAGModel:
                 'vectorstore': self.vectorstore,
                 'hashes': {
                     "jd": self._get_file_hash(self.jd_path),
-                    "vision": self._get_file_hash(self.vision_path),
+                    "vision": self._get_folder_hash(self.vision_path),
                     "resume": self._get_file_hash(self.resume_path)
                 }
             }
@@ -123,6 +152,49 @@ class RAGModel:
             print("💾 Saved to cache for future use")
         except Exception as e:
             print(f"⚠️ Cache saving failed: {e}")
+    
+    def _load_pdf_from_path(self, path, doc_type):
+        """Load PDF(s) from path - handles both single files and folders"""
+        docs = []
+        
+        if os.path.isfile(path):
+            # Single PDF file
+            try:
+                loader = PyPDFLoader(path)
+                file_docs = loader.load()
+                docs.extend(file_docs)
+                print(f"✅ Loaded {doc_type}: {os.path.basename(path)}")
+            except Exception as e:
+                print(f"❌ Error loading {doc_type} ({path}): {e}")
+                return None
+        elif os.path.isdir(path):
+            # Folder - load all PDFs
+            pdf_files = glob.glob(os.path.join(path, "*.pdf"))
+            if not pdf_files:
+                print(f"❌ No PDF files found in {doc_type} folder: {path}")
+                return None
+            
+            print(f"📁 Found {len(pdf_files)} PDF files in {doc_type} folder")
+            for pdf_file in sorted(pdf_files):
+                try:
+                    loader = PyPDFLoader(pdf_file)
+                    file_docs = loader.load()
+                    docs.extend(file_docs)
+                    print(f"  ✅ Loaded: {os.path.basename(pdf_file)}")
+                except Exception as e:
+                    print(f"  ⚠️ Warning: Could not load {os.path.basename(pdf_file)}: {e}")
+                    continue
+            
+            if not docs:
+                print(f"❌ No PDFs could be loaded from {doc_type} folder")
+                return None
+                
+            print(f"✅ Successfully loaded {len(docs)} document chunks from {doc_type} folder")
+        else:
+            print(f"❌ {doc_type} path not found: {path}")
+            return None
+        
+        return docs
     
     def load_documents(self):
         """Load documents from specified paths with caching - OPTIMIZED"""
@@ -142,20 +214,13 @@ class RAGModel:
             "Resume": self.resume_path
         }
         
-        for doc_type, file_path in document_paths.items():
-            if not os.path.exists(file_path):
-                print(f"❌ {doc_type} file not found: {file_path}")
+        for doc_type, path in document_paths.items():
+            docs = self._load_pdf_from_path(path, doc_type)
+            if docs is None:
                 return False
             
-            try:
-                loader = PyPDFLoader(file_path)
-                docs = loader.load()
-                all_docs.extend(docs)
-                doc_types.append(doc_type)
-                print(f"✅ Loaded {doc_type}: {os.path.basename(file_path)}")
-            except Exception as e:
-                print(f"❌ Error loading {doc_type} ({file_path}): {e}")
-                return False
+            all_docs.extend(docs)
+            doc_types.append(doc_type)
         
         self.docs = all_docs
         self.doc_types = doc_types
@@ -213,26 +278,68 @@ class RAGModel:
         return True
     
     def get_document_content(self):
-        """Get content from loaded documents - OPTIMIZED for API calls"""
+        """Get content from loaded documents - NO LENGTH RESTRICTIONS for quality"""
         if not self.docs or len(self.docs) < 3:
             return None, None, None
         
-        # Extract content and truncate for faster API calls - MUCH SHORTER
-        jd_content = self.docs[0].page_content[:self.max_content_length] if len(self.docs) > 0 else ""
-        vision_content = self.docs[1].page_content[:self.max_content_length//2] if len(self.docs) > 1 else ""  # Even shorter
-        resume_content = self.docs[2].page_content[:self.max_content_length] if len(self.docs) > 2 else ""
+        # Extract full content without truncation for comprehensive AI responses
+        jd_content = self.docs[0].page_content if len(self.docs) > 0 else ""
+        
+        # Handle vision content - combine all vision documents
+        vision_content = ""
+        vision_start_index = 1  # Vision documents start after JD
+        
+        # Find where vision documents end (before resume documents)
+        vision_end_index = len(self.docs) - 1  # Default to last document
+        
+        # Look for resume documents (they come after vision)
+        for i, doc in enumerate(self.docs):
+            if hasattr(doc, 'metadata') and doc.metadata.get('source', '').endswith('.pdf'):
+                # This is a heuristic - resume is typically the last document type
+                if i > vision_start_index:
+                    vision_end_index = i - 1
+                    break
+        
+        # Combine all vision document content
+        for i in range(vision_start_index, vision_end_index + 1):
+            if i < len(self.docs):
+                vision_content += self.docs[i].page_content + "\n\n"
+        
+        # Resume content is the last document
+        resume_content = self.docs[-1].page_content if len(self.docs) > 0 else ""
         
         return jd_content, vision_content, resume_content
     
     def get_document_summaries(self):
-        """Get brief summaries for faster processing - OPTIMIZED"""
+        """Get comprehensive summaries for technical depth - NO LENGTH RESTRICTIONS"""
         if not self.docs or len(self.docs) < 3:
             return None, None, None
         
-        # Create very brief summaries for faster API calls
-        jd_summary = self.docs[0].page_content[:500] + "..." if len(self.docs) > 0 else ""
-        vision_summary = self.docs[1].page_content[:300] + "..." if len(self.docs) > 1 else ""
-        resume_summary = self.docs[2].page_content[:500] + "..." if len(self.docs) > 2 else ""
+        # Create comprehensive summaries for technical depth
+        jd_summary = self.docs[0].page_content if len(self.docs) > 0 else ""
+        
+        # Handle vision content - combine all vision documents
+        vision_summary = ""
+        vision_start_index = 1  # Vision documents start after JD
+        
+        # Find where vision documents end (before resume documents)
+        vision_end_index = len(self.docs) - 1  # Default to last document
+        
+        # Look for resume documents (they come after vision)
+        for i, doc in enumerate(self.docs):
+            if hasattr(doc, 'metadata') and doc.metadata.get('source', '').endswith('.pdf'):
+                # This is a heuristic - resume is typically the last document type
+                if i > vision_start_index:
+                    vision_end_index = i - 1
+                    break
+        
+        # Combine all vision document content
+        for i in range(vision_start_index, vision_end_index + 1):
+            if i < len(self.docs):
+                vision_summary += self.docs[i].page_content + "\n\n"
+        
+        # Resume summary is the last document
+        resume_summary = self.docs[-1].page_content if len(self.docs) > 0 else ""
         
         return jd_summary, vision_summary, resume_summary
     
@@ -249,17 +356,25 @@ class RAGModel:
         return max(similarities) if similarities else 0.0
     
     def get_question_weights(self):
-        """Get question distribution based on weights - OPTIMIZED"""
-        total_questions = 5  # Reduced from 7 for faster processing
-        jd_questions = max(1, int(total_questions * self.jd_weight))
-        resume_questions = max(1, int(total_questions * self.resume_weight))
-        vision_questions = max(1, int(total_questions * self.vision_weight))
+        """Get question distribution based on weights - OPTIMIZED for technical depth"""
+        total_questions = 6  # Increased for technical depth
+        jd_questions = max(2, int(total_questions * self.jd_weight))  # Minimum 2 technical questions
+        resume_questions = max(2, int(total_questions * self.resume_weight))  # Minimum 2 experience questions
+        vision_questions = max(1, int(total_questions * self.vision_weight))  # Minimum 1 cultural question
         
         return {
             "JD": jd_questions,
             "Resume": resume_questions,
             "Vision_Mission": vision_questions
         }
+    
+    def get_evaluation_parameters(self):
+        """Get technical evaluation parameters"""
+        return self.evaluation_parameters
+    
+    def get_technical_depth(self):
+        """Get technical depth setting"""
+        return self.technical_depth
     
     def is_initialized(self):
         """Check if model is properly initialized"""
@@ -275,6 +390,7 @@ class RAGModel:
             'processing_time': self._processing_time,
             'chunk_size': self.chunk_size,
             'chunk_overlap': self.chunk_overlap,
-            'max_content_length': self.max_content_length,
-            'embedding_model': self.embedding_model
+            'embedding_model': self.embedding_model,
+            'technical_depth': self.technical_depth,
+            'evaluation_parameters': self.evaluation_parameters
         }
