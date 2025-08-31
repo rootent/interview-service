@@ -16,7 +16,7 @@ class ResponseFormat(BaseModel):
 
 client = OpenAI(
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    api_key="AIzaSyBV9OLcYNxZsteHou6CJ0a6HZ-Hb_Ntjbc"
+    api_key=""
 )
 
 model_name = "gemini-2.0-flash" # "gemini-1.5-flash"
