@@ -7,3 +7,7 @@ scikit-learn
 python-dotenv
 numpy
 psutil
+fastapi
+uvicorn
+pydantic
+pypdf
